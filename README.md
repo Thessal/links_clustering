@@ -1,3 +1,13 @@
+# Correlation cache
+
+For Siamese Neural Network training
+
+Based on links online clustering 
+
+WIP 
+
+----
+
 # Links Online Clustering
 
 Python implementation of the Links Online Clustering algorithm: 
