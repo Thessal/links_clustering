@@ -29,6 +29,21 @@ class Subcluster:
                             self.n_vectors * self.centroid \
                             + vector / self.n_vectors
 
+    def remove(self, vector_idx: int):
+        """Add a new vector to the subcluster, update the centroid."""
+        assert self.store_vectors
+        vector = self.input_vectors.pop(vector_idx)
+        self.n_vectors -= 1
+        if self.centroid is None:
+            raise ValueError
+        else:
+            self.centroid = (self.n_vectors + 1) / \
+                            self.n_vectors * self.centroid \
+                            - vector / self.n_vectors
+        if self.n_vectors == 0:
+            raise NotImplementedError
+            self.merge()
+
     def merge(self,
               subcluster_merge: 'Subcluster',
               delete_merged: bool = True):
@@ -63,7 +78,7 @@ class LinksCluster:
                  cluster_similarity_threshold: float,
                  subcluster_similarity_threshold: float,
                  pair_similarity_maximum: float,
-                 store_vectors=False
+                 store_vectors=False,
                  ):
         self.clusters = []
         self.cluster_similarity_threshold = cluster_similarity_threshold
@@ -73,6 +88,11 @@ class LinksCluster:
 
     def predict(self, new_vector: np.ndarray) -> int:
         """Predict a cluster id for new_vector."""
+        assigned_cluster, _, _ = self.predict_subcluster(new_vector)
+        return assigned_cluster
+
+    def predict_subcluster(self, new_vector: np.ndarray) -> [int, int, int]:
+        """Predict cluster id and subcluster id for new_vector."""
         if len(self.clusters) == 0:
             # Handle first vector
             self.clusters.append([Subcluster(new_vector, store_vectors=self.store_vectors)])
@@ -93,8 +113,10 @@ class LinksCluster:
         if best_similarity >= self.subcluster_similarity_threshold:  # eq. (20)
             # Add to existing subcluster
             best_subcluster.add(new_vector)
+            vector_idx = best_subcluster.n_vectors
             self.update_cluster(best_subcluster_cluster_id, best_subcluster_id)
             assigned_cluster = best_subcluster_cluster_id
+            assigned_subcluster = best_subcluster_id
         else:
             # Create new subcluster
             new_subcluster = Subcluster(new_vector, store_vectors=self.store_vectors)
@@ -104,11 +126,15 @@ class LinksCluster:
                 self.add_edge(best_subcluster, new_subcluster)
                 self.clusters[best_subcluster_cluster_id].append(new_subcluster)
                 assigned_cluster = best_subcluster_cluster_id
+                assigned_subcluster = len(self.clusters[assigned_cluster])-1
+                vector_idx = 0
             else:
                 # New subcluster is a new cluster
                 self.clusters.append([new_subcluster])
                 assigned_cluster = len(self.clusters) - 1
-        return assigned_cluster
+                assigned_subcluster = 0
+                vector_idx = 0
+        return assigned_cluster, assigned_subcluster, vector_idx
 
     @staticmethod
     def add_edge(sc1: Subcluster, sc2: Subcluster):
@@ -187,6 +213,7 @@ class LinksCluster:
             cossim = 1.0 - cosine(updated_sc.centroid, connected_sc.centroid)
             if cossim >= self.subcluster_similarity_threshold:
                 self.merge_subclusters(cl_idx, sc_idx, connected_sc_idx)
+                raise NotImplementedError("Need to update cl_idx, sc_idx of connected_sc_idx items")
             else:
                 are_connected = self.update_edge(updated_sc, connected_sc)
                 if not are_connected:
