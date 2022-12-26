@@ -30,19 +30,23 @@ class Subcluster:
                             + vector / self.n_vectors
 
     def remove(self, vector_idx: int):
-        """Add a new vector to the subcluster, update the centroid."""
+        """Remove a vector from the subcluster, update the centroid."""
         assert self.store_vectors
         vector = self.input_vectors.pop(vector_idx)
         self.n_vectors -= 1
-        if self.centroid is None:
-            raise ValueError
+        is_empty = self.n_vectors == 0
+        if is_empty:
+            self.centroid = None
+            for sc in self.connected_subclusters:
+                sc.connected_subclusters.remove(self)
         else:
-            self.centroid = (self.n_vectors + 1) / \
-                            self.n_vectors * self.centroid \
-                            - vector / self.n_vectors
-        if self.n_vectors == 0:
-            raise NotImplementedError
-            self.merge()
+            if self.centroid is None:
+                raise ValueError
+            else:
+                self.centroid = (self.n_vectors + 1) / \
+                                self.n_vectors * self.centroid \
+                                - vector / self.n_vectors
+        return is_empty
 
     def merge(self,
               subcluster_merge: 'Subcluster',
@@ -91,12 +95,12 @@ class LinksCluster:
         assigned_cluster, _, _ = self.predict_subcluster(new_vector)
         return assigned_cluster
 
-    def predict_subcluster(self, new_vector: np.ndarray) -> [int, int, int]:
+    def predict_subcluster(self, new_vector: np.ndarray) -> tuple[int, int, int]:
         """Predict cluster id and subcluster id for new_vector."""
         if len(self.clusters) == 0:
             # Handle first vector
             self.clusters.append([Subcluster(new_vector, store_vectors=self.store_vectors)])
-            return 0
+            return 0, 0, 0
 
         best_subcluster = None
         best_similarity = -np.inf
@@ -213,7 +217,6 @@ class LinksCluster:
             cossim = 1.0 - cosine(updated_sc.centroid, connected_sc.centroid)
             if cossim >= self.subcluster_similarity_threshold:
                 self.merge_subclusters(cl_idx, sc_idx, connected_sc_idx)
-                raise NotImplementedError("Need to update cl_idx, sc_idx of connected_sc_idx items")
             else:
                 are_connected = self.update_edge(updated_sc, connected_sc)
                 if not are_connected:

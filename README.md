@@ -1,10 +1,29 @@
 # Correlation cache
 
+Online correlation cache, based on links online clustering
+
 For Siamese Neural Network training
 
-Based on links online clustering 
+## Usage example
 
-WIP 
+```python
+from cache_wrapper import EvictingCacheWrapper
+import numpy as np
+
+cache = EvictingCacheWrapper(0.1, 0.05, 1.0, True, 10)
+for i in range(100):
+    cache.push(new_key=i, new_vector=streaming_input_vectors[i], top_n=0)
+similar_vectors = cache.push(new_key=100, new_vector=np.array([1,0,0,0,0]), top_n=10)
+...
+```
+
+For more usage examples, see the `tests`.
+
+## TODO
+* Add more tests
+* Implement least correlation query 
+* Test performance for N = 10k, 100k, 1M
+
 
 ----
 
