@@ -1,6 +1,6 @@
 import numpy as np
 
-from cache_wrapper import EvictingCacheWrapper
+from links_cluster import EvictingCacheWrapper
 
 class TestEvictingCache:
     """Tests for EvictingCacheWrapper class."""

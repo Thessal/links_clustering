@@ -95,7 +95,7 @@ class LinksCluster:
         assigned_cluster, _, _ = self.predict_subcluster(new_vector)
         return assigned_cluster
 
-    def predict_subcluster(self, new_vector: np.ndarray) -> tuple[int, int, int]:
+    def predict_subcluster(self, new_vector: np.ndarray) -> tuple:  # tuple[int, int, int]:
         """Predict cluster id and subcluster id for new_vector."""
         if len(self.clusters) == 0:
             # Handle first vector

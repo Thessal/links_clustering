@@ -1,7 +1,8 @@
 import numpy as np
-from links_cluster import LinksCluster, Subcluster
+from .links_cluster import LinksCluster, Subcluster
 from scipy.spatial.distance import cosine
 import itertools
+
 
 class EvictingCacheWrapper(LinksCluster):
     def __init__(self, cluster_similarity_threshold: float, subcluster_similarity_threshold: float,
@@ -19,9 +20,9 @@ class EvictingCacheWrapper(LinksCluster):
         item = self.stored_vectors[stored_vectors_idx]
         _, target_vector, cluster_idx, subcluster_idx, _ = item
         for sc in (
-            sorted(self.clusters[cluster_idx], key=lambda sc: cosine(target_vector, sc.centroid))
-            if self.query_whole_cluster
-            else self.clusters[cluster_idx][subcluster_idx]
+                sorted(self.clusters[cluster_idx], key=lambda sc: cosine(target_vector, sc.centroid))
+                if self.query_whole_cluster
+                else self.clusters[cluster_idx][subcluster_idx]
         ):
             for vec in sorted(sc.input_vectors, key=lambda vec: cosine(target_vector, vec)):
                 yield vec
