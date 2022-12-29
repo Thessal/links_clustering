@@ -17,19 +17,17 @@ similar_vectors = cache.push(new_key=100, new_vector=np.array([1,0,0,0,0]), top_
 ...
 ```
 
-For more usage examples, see the `tests`.
+For more usage examples, see the `tests` and `benchmark`.
 
 ## Benchmark
 Do shuffle!
 
-![benchmark_time](./benchmark/time.png)
-![benchmark_similarity](./benchmark/l1.png)
+![benchmark_time](./benchmark/bench_time.png)
+![benchmark_cluster](./benchmark/bench_cluster.png)
+![benchmark_similarity](./benchmark/bench_similarity.png)
 
 ## TODO
-* Add more tests
-* Implement least correlation query 
-* Test performance for N = 10k, 100k, 1M
-
+* Stress test
 
 ----
 
