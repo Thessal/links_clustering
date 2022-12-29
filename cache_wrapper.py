@@ -78,12 +78,11 @@ class LinkedListIterator:
 
 class EvictingCacheWrapper(LinksCluster):
     def __init__(self, cluster_similarity_threshold: float, subcluster_similarity_threshold: float,
-                 pair_similarity_maximum: float, query_whole_cluster: bool, max_size: int, debug=False):
+                 pair_similarity_maximum: float, query_whole_cluster: bool, max_size: int, evict_unsafe: bool):
         super().__init__(
             cluster_similarity_threshold, subcluster_similarity_threshold, pair_similarity_maximum,
-            store_vectors=True,
+            store_vectors=True if evict_unsafe else False, evict_unsafe=evict_unsafe
         )
-        self.debug = debug
         self.stored_vectors = LinkedList()
         # TODO : optimize, use ndarray rather than list
         self.query_whole_cluster = query_whole_cluster
@@ -99,45 +98,17 @@ class EvictingCacheWrapper(LinksCluster):
             for vec in sorted(sc.input_vectors, key=lambda vec_: cosine(item.vector, vec_)):
                 yield vec
 
-    def merge_subclusters(self, cl_idx, sc_idx1, sc_idx2):
-        vec_offset = self.clusters[cl_idx][sc_idx1].n_vectors
-        super().merge_subclusters(cl_idx, sc_idx1, sc_idx2)
-
-        vecs = reversed(sorted(list(self.stored_vectors.clusters[cl_idx][sc_idx2].keys())))
-        for vec_idx in vecs:
-            self.stored_vectors.modify(cl_idx, sc_idx2, vec_idx, cl_idx, sc_idx1, vec_idx + vec_offset)
-        scs = sorted([x for x in self.stored_vectors.clusters[cl_idx].keys() if (x > sc_idx2)])
-        for sc_idx in scs:
-            self.stored_vectors.modify(cl_idx, sc_idx, None, cl_idx, sc_idx - 1, None)
+    # def dump(self):
+    #     print("==")
+    #     for x in self.stored_vectors:
+    #         print(x.key, x.cl_idx, x.sc_idx, x.vec_idx, self.clusters[x.cl_idx][x.sc_idx].connected_subclusters)
+    #     print("==")
 
     def push(self, new_key: int, new_vector: np.ndarray, top_n=10) -> list:
-
-        cluster_idx, subcluster_idx, vector_idx = super().predict_subcluster(
-            new_vector, wrapper_stored_vectors=self.stored_vectors
-        )
-        self.stored_vectors.push(new_key, new_vector, cluster_idx, subcluster_idx, vector_idx)
-
+        super().predict_(new_key, new_vector, wrapper_stored_vectors=self.stored_vectors)
         if len(self.stored_vectors) > self.max_size:
             self.pop()
-
         return list(itertools.islice(self.query_vector(), top_n))
 
     def pop(self):
-        item = self.stored_vectors.pop()
-
-        # FIXME : self.clusters[item.cl_idx][item.sc_idx] : list index out of range
-        is_empty = self.clusters[item.cl_idx][item.sc_idx].remove_(item.vec_idx)
-
-        if is_empty:
-            _ = self.clusters[item.cl_idx].pop(item.sc_idx)
-            for sc_idx in sorted([x for x in self.stored_vectors.clusters[item.cl_idx].keys() if (x > item.sc_idx)]):
-                self.stored_vectors.modify(item.cl_idx, sc_idx, None, item.cl_idx, sc_idx - 1, None)
-        else:
-            for vec_idx in sorted(
-                    [x for x in self.stored_vectors.clusters[item.cl_idx][item.sc_idx].keys() if (x > item.vec_idx)]):
-                self.stored_vectors.modify(item.cl_idx, item.sc_idx, vec_idx, item.cl_idx, item.sc_idx, vec_idx - 1)
-
-        # # TODO : check what happens if cluster size becomes 0
-        # # FIXME : remove empty cluster
-        # if len(self.clusters[item.cl_idx]) == 0:
-        #     _ = self.clusters.pop(item.cl_idx)
+        super().remove_(wrapper_stored_vectors=self.stored_vectors)

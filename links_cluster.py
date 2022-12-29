@@ -31,6 +31,7 @@ class Subcluster:
 
     def remove_(self, vector_idx: int):
         """Remove a vector from the subcluster, update the centroid."""
+        # NOTE : Removing subclusters may be not safe (connected_subclusters may be empty)
         assert self.store_vectors
         vector = self.input_vectors.pop(vector_idx)
         self.n_vectors -= 1
@@ -78,30 +79,33 @@ class Subcluster:
 
 class LinksCluster:
     """An online clustering algorithm."""
-
     def __init__(self,
                  cluster_similarity_threshold: float,
                  subcluster_similarity_threshold: float,
                  pair_similarity_maximum: float,
                  store_vectors=False,
+                 evict_unsafe=False,
                  ):
         self.clusters = []
         self.cluster_similarity_threshold = cluster_similarity_threshold
         self.subcluster_similarity_threshold = subcluster_similarity_threshold
         self.pair_similarity_maximum = pair_similarity_maximum
         self.store_vectors = store_vectors
+        self.evict_unsafe = evict_unsafe
+        assert(subcluster_similarity_threshold <= 0.5 * cluster_similarity_threshold)
 
     def predict(self, new_vector: np.ndarray) -> int:
         """Predict a cluster id for new_vector."""
-        assigned_cluster, _, _ = self.predict_subcluster(new_vector)
+        assigned_cluster = self.predict_(-1, new_vector)
         return assigned_cluster
 
-    def predict_subcluster(self, new_vector: np.ndarray, wrapper_stored_vectors=None) -> tuple:  # tuple[int, int, int]:
+    def predict_(self, new_key: int, new_vector: np.ndarray, wrapper_stored_vectors=None) -> int:
         """Predict cluster id and subcluster id for new_vector."""
         if len(self.clusters) == 0:
             # Handle first vector
             self.clusters.append([Subcluster(new_vector, store_vectors=self.store_vectors)])
-            return 0, 0, 0
+            wrapper_stored_vectors.push(new_key, new_vector, 0, 0, 0)
+            return 0
 
         best_subcluster = None
         best_similarity = -np.inf
@@ -117,11 +121,13 @@ class LinksCluster:
                     best_subcluster_id = sc_idx
         if best_similarity >= self.subcluster_similarity_threshold:  # eq. (20)
             # Add to existing subcluster
-            vector_idx = best_subcluster.n_vectors
             best_subcluster.add(new_vector)
+            wrapper_stored_vectors.push(
+                new_key, new_vector, best_subcluster_cluster_id, best_subcluster_id, best_subcluster.n_vectors-1
+            )
+            # NOTE : wrapper_stored_vectors is modified during self.update_cluster
             self.update_cluster(best_subcluster_cluster_id, best_subcluster_id, wrapper_stored_vectors)
             assigned_cluster = best_subcluster_cluster_id
-            assigned_subcluster = best_subcluster_id
         else:
             # Create new subcluster
             new_subcluster = Subcluster(new_vector, store_vectors=self.store_vectors)
@@ -132,15 +138,35 @@ class LinksCluster:
                 self.clusters[best_subcluster_cluster_id].append(new_subcluster)
                 assigned_cluster = best_subcluster_cluster_id
                 assigned_subcluster = len(self.clusters[assigned_cluster])-1
-                vector_idx = 0
             else:
                 # New subcluster is a new cluster
                 self.clusters.append([new_subcluster])
                 assigned_cluster = len(self.clusters) - 1
                 assigned_subcluster = 0
-                vector_idx = 0
-        return assigned_cluster, assigned_subcluster, vector_idx
+            wrapper_stored_vectors.push(
+                new_key, new_vector, assigned_cluster, assigned_subcluster, 0
+            )
+        return assigned_cluster
 
+    def remove_(self, wrapper_stored_vectors):
+        item = wrapper_stored_vectors.pop()
+
+        # NOTE : Removing subclusters may be not safe (connected_subclusters may be empty)
+        if self.evict_unsafe:
+            is_empty = self.clusters[item.cl_idx][item.sc_idx].remove_(item.vec_idx)
+
+            if is_empty:
+                _ = self.clusters[item.cl_idx].pop(item.sc_idx)
+                for sc_idx in sorted([x for x in wrapper_stored_vectors.clusters[item.cl_idx].keys() if (x > item.sc_idx)]):
+                    wrapper_stored_vectors.modify(item.cl_idx, sc_idx, None, item.cl_idx, sc_idx - 1, None)
+            else:
+                for vec_idx in sorted(
+                        [x for x in wrapper_stored_vectors.clusters[item.cl_idx][item.sc_idx].keys() if (x > item.vec_idx)]):
+                    wrapper_stored_vectors.modify(item.cl_idx, item.sc_idx, vec_idx, item.cl_idx, item.sc_idx, vec_idx - 1)
+        else:
+            for vec_idx in sorted(
+                    [x for x in wrapper_stored_vectors.clusters[item.cl_idx][item.sc_idx].keys() if (x > item.vec_idx)]):
+                wrapper_stored_vectors.modify(item.cl_idx, item.sc_idx, vec_idx, item.cl_idx, item.sc_idx, vec_idx - 1)
     @staticmethod
     def add_edge(sc1: Subcluster, sc2: Subcluster):
         """Add an edge between subclusters sc1, and sc2."""
@@ -176,16 +202,39 @@ class LinksCluster:
             sc2.connected_subclusters.add(sc1)
             return True
 
+    # def merge_subclusters(self, cl_idx, sc_idx1, sc_idx2, wrapper_stored_vectors=None):
+    #     """Merge subclusters with id's sc_idx1 and sc_idx2 of cluster with id cl_idx."""
+    #     sc2 = self.clusters[cl_idx][sc_idx2]
+    #     self.clusters[cl_idx][sc_idx1].merge(sc2)
+    #     self.update_cluster(cl_idx, sc_idx1, wrapper_stored_vectors)
+    #     self.clusters[cl_idx] = self.clusters[cl_idx][:sc_idx2] \
+    #         + self.clusters[cl_idx][sc_idx2 + 1:]
+    #     for sc in self.clusters[cl_idx]:
+    #         if sc2 in sc.connected_subclusters:
+    #             sc.connected_subclusters.remove(sc2)
+
     def merge_subclusters(self, cl_idx, sc_idx1, sc_idx2, wrapper_stored_vectors=None):
         """Merge subclusters with id's sc_idx1 and sc_idx2 of cluster with id cl_idx."""
+        vec_offset = self.clusters[cl_idx][sc_idx1].n_vectors
+
         sc2 = self.clusters[cl_idx][sc_idx2]
         self.clusters[cl_idx][sc_idx1].merge(sc2)
+
+        vecs = reversed(sorted(list(wrapper_stored_vectors.clusters[cl_idx][sc_idx2].keys())))
+        for vec_idx in vecs:
+            wrapper_stored_vectors.modify(cl_idx, sc_idx2, vec_idx, cl_idx, sc_idx1, vec_idx + vec_offset)
+        wrapper_stored_vectors.clusters[cl_idx].pop(sc_idx2)
+        scs = sorted([x for x in wrapper_stored_vectors.clusters[cl_idx].keys() if (x > sc_idx2)])
+        for sc_idx in scs:
+            wrapper_stored_vectors.modify(cl_idx, sc_idx, None, cl_idx, sc_idx - 1, None)
+
         self.update_cluster(cl_idx, sc_idx1, wrapper_stored_vectors)
         self.clusters[cl_idx] = self.clusters[cl_idx][:sc_idx2] \
             + self.clusters[cl_idx][sc_idx2 + 1:]
         for sc in self.clusters[cl_idx]:
             if sc2 in sc.connected_subclusters:
                 sc.connected_subclusters.remove(sc2)
+
 
     def update_cluster(self, cl_idx: int, sc_idx: int, wrapper_stored_vectors=None):
         """Update cluster
@@ -218,7 +267,7 @@ class LinksCluster:
                                  f"was not found in cluster list of {cl_idx}.")
             cossim = 1.0 - cosine(updated_sc.centroid, connected_sc.centroid)
             if cossim >= self.subcluster_similarity_threshold:
-                self.merge_subclusters(cl_idx, sc_idx, connected_sc_idx)
+                self.merge_subclusters(cl_idx, sc_idx, connected_sc_idx, wrapper_stored_vectors=wrapper_stored_vectors)
             else:
                 are_connected = self.update_edge(updated_sc, connected_sc)
                 if not are_connected:
