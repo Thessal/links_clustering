@@ -40,24 +40,50 @@ class EvictingCacheWrapper(LinksCluster):
                     self.stored_vectors[i][3] -= 1
 
     def push(self, new_key: int, new_vector: np.ndarray, top_n=10) -> list:
+        cluster_idx, subcluster_idx, vector_idx = super().predict_subcluster(new_vector)
         if len(self.stored_vectors) >= self.max_size:
             self.pop()
-        cluster_idx, subcluster_idx, vector_idx = super().predict_subcluster(new_vector)
         self.stored_vectors.append([new_key, new_vector, cluster_idx, subcluster_idx, vector_idx])
         return list(itertools.islice(self.query_vector(-1), top_n))
+
+    def check_integrity(self):
+        # Check hollow subcluster
+        assert(all([(sc.centroid is not None) for c in self.clusters for sc in c]))
+        assert(all([
+            (csc.centroid is not None) for c in self.clusters for sc in c for csc in sc.connected_subclusters
+        ]))
+
+        # Check indexer
+        for _, target_vector, cluster_idx, subcluster_idx, vector_idx in self.stored_vectors:
+            assert(
+                    len(self.clusters[cluster_idx][subcluster_idx].input_vectors) ==
+                    self.clusters[cluster_idx][subcluster_idx].n_vectors
+            )
+        for k, target_vector, cluster_idx, subcluster_idx, vector_idx in self.stored_vectors:
+            if not (self.clusters[cluster_idx][subcluster_idx].n_vectors > vector_idx):
+                for x in self.stored_vectors:
+                    print(x)
+                print()
+                print(k, target_vector, cluster_idx, subcluster_idx, vector_idx)
+                print()
+                for i,cl in enumerate(self.clusters):
+                    for j,sc in enumerate(cl):
+                        print(i, j, sc.input_vectors, sc.n_vectors)
+                raise Exception()
 
     def pop(self, stored_vectors_idx=0):
         item = self.stored_vectors.pop(stored_vectors_idx)
         _, target_vector, cluster_idx, subcluster_idx, vector_idx = item
 
-        is_empty = self.clusters[cluster_idx][subcluster_idx].remove(vector_idx)
+        is_empty = self.clusters[cluster_idx][subcluster_idx].remove_(vector_idx)
         if is_empty:
-            _ = self.clusters[cluster_idx].pop()
+            _ = self.clusters[cluster_idx].pop(subcluster_idx)
             for i, item in enumerate(self.stored_vectors):
                 _, _, cluster_idx_, subcluster_idx_, vector_idx_ = item
                 if cluster_idx == cluster_idx_:
                     if subcluster_idx <= subcluster_idx_:
                         self.stored_vectors[i][3] -= 1
+            # self.check_integrity()
         else:
             for i, item in enumerate(self.stored_vectors):
                 _, _, cluster_idx_, subcluster_idx_, vector_idx_ = item
@@ -65,3 +91,4 @@ class EvictingCacheWrapper(LinksCluster):
                     if subcluster_idx == subcluster_idx_:
                         if vector_idx <= vector_idx_:
                             self.stored_vectors[i][4] -= 1
+            # self.check_integrity()

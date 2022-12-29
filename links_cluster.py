@@ -29,7 +29,7 @@ class Subcluster:
                             self.n_vectors * self.centroid \
                             + vector / self.n_vectors
 
-    def remove(self, vector_idx: int):
+    def remove_(self, vector_idx: int):
         """Remove a vector from the subcluster, update the centroid."""
         assert self.store_vectors
         vector = self.input_vectors.pop(vector_idx)
@@ -116,8 +116,8 @@ class LinksCluster:
                     best_subcluster_id = sc_idx
         if best_similarity >= self.subcluster_similarity_threshold:  # eq. (20)
             # Add to existing subcluster
-            best_subcluster.add(new_vector)
             vector_idx = best_subcluster.n_vectors
+            best_subcluster.add(new_vector)
             self.update_cluster(best_subcluster_cluster_id, best_subcluster_id)
             assigned_cluster = best_subcluster_cluster_id
             assigned_subcluster = best_subcluster_id
