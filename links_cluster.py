@@ -78,6 +78,7 @@ class Subcluster:
 
 class LinksCluster:
     """An online clustering algorithm."""
+
     def __init__(self,
                  cluster_similarity_threshold: float,
                  subcluster_similarity_threshold: float,
@@ -95,7 +96,7 @@ class LinksCluster:
         assigned_cluster, _, _ = self.predict_subcluster(new_vector)
         return assigned_cluster
 
-    def predict_subcluster(self, new_vector: np.ndarray) -> tuple:  # tuple[int, int, int]:
+    def predict_subcluster(self, new_vector: np.ndarray, wrapper_stored_vectors=None) -> tuple:  # tuple[int, int, int]:
         """Predict cluster id and subcluster id for new_vector."""
         if len(self.clusters) == 0:
             # Handle first vector
@@ -118,7 +119,7 @@ class LinksCluster:
             # Add to existing subcluster
             vector_idx = best_subcluster.n_vectors
             best_subcluster.add(new_vector)
-            self.update_cluster(best_subcluster_cluster_id, best_subcluster_id)
+            self.update_cluster(best_subcluster_cluster_id, best_subcluster_id, wrapper_stored_vectors)
             assigned_cluster = best_subcluster_cluster_id
             assigned_subcluster = best_subcluster_id
         else:
@@ -175,18 +176,18 @@ class LinksCluster:
             sc2.connected_subclusters.add(sc1)
             return True
 
-    def merge_subclusters(self, cl_idx, sc_idx1, sc_idx2):
+    def merge_subclusters(self, cl_idx, sc_idx1, sc_idx2, wrapper_stored_vectors=None):
         """Merge subclusters with id's sc_idx1 and sc_idx2 of cluster with id cl_idx."""
         sc2 = self.clusters[cl_idx][sc_idx2]
         self.clusters[cl_idx][sc_idx1].merge(sc2)
-        self.update_cluster(cl_idx, sc_idx1)
+        self.update_cluster(cl_idx, sc_idx1, wrapper_stored_vectors)
         self.clusters[cl_idx] = self.clusters[cl_idx][:sc_idx2] \
             + self.clusters[cl_idx][sc_idx2 + 1:]
         for sc in self.clusters[cl_idx]:
             if sc2 in sc.connected_subclusters:
                 sc.connected_subclusters.remove(sc2)
 
-    def update_cluster(self, cl_idx: int, sc_idx: int):
+    def update_cluster(self, cl_idx: int, sc_idx: int, wrapper_stored_vectors=None):
         """Update cluster
 
         Subcluster with id sc_idx has been changed, and we want to
@@ -198,10 +199,11 @@ class LinksCluster:
                 The index of the cluster to update
             sc_idx: int
                 The index of the subcluster that has been changed
+            wrapper_stored_vectors: LinkedList
+                Memory of EvictingCacheWrapper
 
         Returns:
             None
-
         """
         updated_sc = self.clusters[cl_idx][sc_idx]
         severed_subclusters = []
@@ -235,6 +237,10 @@ class LinksCluster:
                 self.clusters[cl_idx] = self.clusters[cl_idx][:severed_sc_id] \
                     + self.clusters[cl_idx][severed_sc_id + 1:]
                 self.clusters.append([severed_sc])
+                if wrapper_stored_vectors:
+                    wrapper_stored_vectors.modify(cl_idx, severed_sc_id, None, len(self.clusters)-1, 0, None)
+                    for old_sc in sorted([x for x in wrapper_stored_vectors.clusters[cl_idx].keys() if (x>severed_sc_id)]):
+                        wrapper_stored_vectors.modify(cl_idx, old_sc, None, cl_idx, old_sc - 1, None)
 
     def get_all_vectors(self):
         """Return all stored vectors from entire history.
